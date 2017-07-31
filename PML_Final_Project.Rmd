@@ -1,0 +1,144 @@
+---
+title: "Practical Machine Learning Final Project"
+author: "Rohit Joshi"
+date: "July 7, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Practical Machine Learning: Final Project
+
+The purpose of this analysis is to build a human activity recognition algorithm. Accelerometers were placed on six individuals who performed bicep curls either correctly or incorrectly. Using approximately 160 variables that were collected from the accelerometers, we will build an algorithm for predicting whether an individual correctly or incorrectly performed the exercise. The source data is available (here)[http://groupware.les.inf.puc-rio.br/har].
+
+## Preparing the data
+
+### Importing packages
+
+```{r results='hide'}
+library(caret)
+library(gbm)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(munsell)
+library(rattle)
+```
+
+### Loading the data
+
+The training data we will use was provided by Coursera [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv).
+c
+The training data was also provided by Coursera [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+```{r results='hide', cache=TRUE}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv","pml_training.csv")
+pml_training<-read.csv("pml_training.csv", na.strings=c("NA",""))
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv","pml_test.csv")
+pml_test<-read.csv("pml_test.csv", na.strings=c("NA",""))
+```
+
+### Cleaning data
+
+All of the data is in integer form (e.g., user name, new window). There are also many blank or NA values (kurtosis_roll_belt, max_roll_belt). We'll clean in the following ways:
+* Remove columns that have incomplete data (i.e. NA values). Since we can't interpret NA values, we have to omit them.
+* Remove unnecessary columns (columns 1 and 3-7); we're going to assume the timestamp doesn't have an impact
+* Change the user name to be coded categorically; adelmo will be the "base case"
+
+```{r results='hide'}
+#Remove variables with NA values
+pml_training<-pml_training[,colSums(is.na(pml_training))==0]
+pml_test<-pml_test[,colSums(is.na(pml_test))==0]
+#remove unnecessary variables
+pml_training<-pml_training[,-c(1,3:7)]
+pml_test<-pml_test[,-c(1,3:7)]
+#code user names categorically
+pml_training$carlitos<-ifelse(pml_training$user_name=='carlitos',1,0)
+pml_training$charles<-ifelse(pml_training$user_name=='charles',1,0)
+pml_training$eurico<-ifelse(pml_training$user_name=='eurico',1,0)
+pml_training$eurico<-ifelse(pml_training$user_name=='jeremy',1,0)
+pml_training$pedro<-ifelse(pml_training$user_name=='pedro',1,0)
+pml_test$carlitos<-ifelse(pml_test$user_name=='carlitos',1,0)
+pml_test$charles<-ifelse(pml_test$user_name=='charles',1,0)
+pml_test$eurico<-ifelse(pml_test$user_name=='eurico',1,0)
+pml_test$eurico<-ifelse(pml_test$user_name=='jeremy',1,0)
+pml_test$pedro<-ifelse(pml_test$user_name=='pedro',1,0)
+```
+
+### Partitioning data
+
+Although we already have a separate training and test set, we need to further split the training data into a training and validation set so that we can estimate "out-of-sample" error. Typically 70% of the training data is allocated to remain in the training set, and 30% becomes validation.
+
+```{r results='hide'}
+set.seed(1338)
+inTrain<-createDataPartition(pml_training$classe,p=0.7,list=FALSE)
+train<-pml_training[inTrain,]
+validation<-pml_training[-inTrain,]
+test<-pml_test
+```
+
+## Building the model
+
+### Regression model
+
+Building the model:
+
+```{r}
+set.seed(1338)
+regression_control<-trainControl(method = "repeatedcv", number = 10, repeats = 1)
+regression_model<-train(classe~.,data=train,method="gbm", trControl=regression_control,verbose=FALSE)
+```
+
+Testing the data on our validation data:
+
+```{r}
+regression_predict<-predict(regression_model,newdata=validation)
+regression_cm<-confusionMatrix(regression_predict,validation$classe)
+regression_cm
+```
+
+### Decision tree
+
+Building the model:
+
+```{r}
+set.seed(1338)
+decision_tree_model <- rpart(classe ~ ., data=train, method="class")
+fancyRpartPlot(decision_tree_model)
+```
+
+Testing the data on our validation data:
+
+```{r}
+decision_tree_predict <- predict(decision_tree_model, validation, type = "class")
+decision_tree_matrix <- confusionMatrix(decision_tree_predict, validation$classe)
+decision_tree_matrix
+```
+
+### Random Forest
+
+Building the model:
+
+```{r}
+random_forest_model <- randomForest(classe ~ ., data=train)
+plot(random_forest_model)
+```
+
+Testing the data on our test data:
+
+```{r}
+random_forest_predict <- predict(random_forest_model, validation, type = "class")
+random_forest_matrix <- confusionMatrix(random_forest_predict, validation$classe)
+random_forest_matrix
+```
+
+### Conclusion
+
+The random forest model is the most accurate, followed by the boosted regression model. The decision tree model doesn't do so well in this case. We'll go ahead with the random forest approach, and finish off by predicting on our test set using the random forest model.
+
+```{r results='hide'}
+test_prediction<-predict(random_forest_model,test,type="class")
+test_prediction
+```
